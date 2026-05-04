@@ -3,10 +3,9 @@
   "name": "API Mock Master",
   "version": "1.0.0",
   "description": "Intercept and mock API responses for development and testing",
-  "permissions": ["storage", "tabs"],
+  "permissions": ["storage", "tabs", "windows"],
   "host_permissions": ["<all_urls>"],
   "action": {
-    "default_popup": "popup.html",
     "default_title": "API Mock Master"
   },
   "background": {
