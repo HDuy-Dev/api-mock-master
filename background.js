@@ -90,31 +90,6 @@ async function initIcon() {
 chrome.runtime.onInstalled.addListener(initIcon);
 chrome.runtime.onStartup.addListener(initIcon);
 
-// ── Persistent popup window ───────────────────────────────────────────────
-let popupWindowId = null;
-
-chrome.action.onClicked.addListener(async () => {
-  if (popupWindowId !== null) {
-    try {
-      await chrome.windows.update(popupWindowId, { focused: true });
-      return;
-    } catch (_) {
-      popupWindowId = null;
-    }
-  }
-  const win = await chrome.windows.create({
-    url: chrome.runtime.getURL('popup.html'),
-    type: 'popup',
-    width: 660,
-    height: 660,
-    focused: true,
-  });
-  popupWindowId = win.id;
-});
-
-chrome.windows.onRemoved.addListener((windowId) => {
-  if (windowId === popupWindowId) popupWindowId = null;
-});
 
 // ── Message handler ───────────────────────────────────────────────────────
 chrome.runtime.onMessage.addListener((msg, _sender, respond) => {

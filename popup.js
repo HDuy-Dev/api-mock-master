@@ -125,6 +125,11 @@ function buildGroupSection(group, visibleMocks, totalCount) {
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
               Rename
             </button>
+            <button class="btn-export-group">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              Export group
+            </button>
+            <div class="dropdown-sep"></div>
             <button class="btn-delete-group danger">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/></svg>
               Delete group
@@ -178,17 +183,21 @@ function bindGroupSection(el, group) {
   // More / dropdown
   q('.more-btn', el).addEventListener('click', (e) => {
     e.stopPropagation();
-    document.querySelectorAll('.dropdown:not(.hidden)').forEach((d) => { if (d !== dropdown) d.classList.add('hidden'); });
-    dropdown.classList.toggle('hidden');
+    openDropdown(e.currentTarget, dropdown);
   });
 
   q('.btn-rename-group', el).addEventListener('click', (e) => {
-    e.stopPropagation(); dropdown.classList.add('hidden');
+    e.stopPropagation(); closeDropdown(dropdown);
     startGroupRename(el, group);
   });
 
+  q('.btn-export-group', el).addEventListener('click', (e) => {
+    e.stopPropagation(); closeDropdown(dropdown);
+    exportGroup(group);
+  });
+
   q('.btn-delete-group', el).addEventListener('click', (e) => {
-    e.stopPropagation(); dropdown.classList.add('hidden');
+    e.stopPropagation(); closeDropdown(dropdown);
     showConfirm(`Delete group "${group.name}"?\nMocks inside will become ungrouped.`, async () => {
       const res = await sendMsg({ type: 'DELETE_GROUP', id: group.id });
       state = res.state; render();
@@ -240,14 +249,20 @@ function buildMoveToGroupBtns(mock) {
   const items = [];
   if (mock.groupId) {
     items.push(`<button class="btn-move-group" data-gid="">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 9V7a2 2 0 00-2-2H4a2 2 0 00-2 2v10a2 2 0 002 2h14a2 2 0 002-2v-2"/><polyline points="15 3 21 9 15 15"/></svg>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
+        <line x1="9" y1="14" x2="15" y2="14"/><polyline points="12 11 9 14 12 17"/>
+      </svg>
       Remove from group
     </button>`);
   }
   groups.filter((g) => g.id !== mock.groupId).forEach((g) => {
     items.push(`<button class="btn-move-group" data-gid="${esc(g.id)}">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
-      ${esc(g.name)}
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
+        <line x1="9" y1="14" x2="15" y2="14"/><polyline points="12 11 15 14 12 17"/>
+      </svg>
+      → ${esc(g.name)}
     </button>`);
   });
   if (!items.length) return '';
@@ -274,8 +289,8 @@ function buildMockItem(mock) {
         </svg>
       </span>
       <div class="mock-header-main">
-        <span class="mock-field-label">URL</span>
-        <span class="mock-url ${mock.enabled ? '' : 'dimmed'}" title="${esc(mock.url)}">${esc(mock.label || mock.url || '(empty URL)')}</span>
+        <span class="mock-name ${mock.enabled ? '' : 'dimmed'}" title="${esc(mock.url)}">${esc(mock.label || getEndpoint(mock.url) || '(empty URL)')}</span>
+        <span class="mock-url-sub ${mock.enabled ? '' : 'dimmed'}">${esc(mock.url || '')}</span>
       </div>
       <span class="method-badge ${mock.method}">${esc(mock.method)}</span>
       <span class="hit-badge" title="Hit count">${mock.hitCount || 0}</span>
@@ -333,10 +348,6 @@ function buildMockItem(mock) {
           </label>
           <input type="number" class="delay-input" value="${mock.delay || 0}" min="0">
         </div>
-        <div class="field">
-          <label>Label</label>
-          <input type="text" class="label-input" value="${esc(mock.label || '')}" placeholder="Optional label">
-        </div>
       </div>
       <div class="tabs">
         <button class="tab-btn active" data-tab="response">Response payload</button>
@@ -361,10 +372,16 @@ function buildMockItem(mock) {
 }
 
 function bindMockItem(el, mock) {
-  // Expand / collapse
+  // Expand / collapse (ignore dblclick on name — that triggers rename)
   q('.mock-header', el).addEventListener('click', (e) => {
-    if (e.target.closest('.item-toggle') || e.target.closest('.more-wrap')) return;
+    if (e.target.closest('.item-toggle') || e.target.closest('.more-wrap') || e.target.closest('.mock-name')) return;
     toggleExpand(mock.id, el);
+  });
+
+  // Double-click on name to rename
+  q('.mock-name', el).addEventListener('dblclick', (e) => {
+    e.stopPropagation();
+    startMockRename(el, mock);
   });
 
   // Item toggle
@@ -380,31 +397,30 @@ function bindMockItem(el, mock) {
   const dropdown = q('.dropdown', el);
   q('.more-btn', el).addEventListener('click', (e) => {
     e.stopPropagation();
-    document.querySelectorAll('.dropdown:not(.hidden)').forEach((d) => { if (d !== dropdown) d.classList.add('hidden'); });
-    dropdown.classList.toggle('hidden');
+    openDropdown(e.currentTarget, dropdown);
   });
 
   q('.btn-reset-hits', el).addEventListener('click', async (e) => {
-    e.stopPropagation(); dropdown.classList.add('hidden');
+    e.stopPropagation(); closeDropdown(dropdown);
     await sendMsg({ type: 'RESET_HITS', id: mock.id });
     mock.hitCount = 0; updateMockInState(mock);
     q('.hit-badge', el).textContent = '0';
   });
 
   q('.btn-duplicate', el).addEventListener('click', (e) => {
-    e.stopPropagation(); dropdown.classList.add('hidden');
+    e.stopPropagation(); closeDropdown(dropdown);
     duplicateMock(mock);
   });
 
   q('.btn-export-mock', el).addEventListener('click', (e) => {
-    e.stopPropagation(); dropdown.classList.add('hidden');
+    e.stopPropagation(); closeDropdown(dropdown);
     exportSingleMock(mock);
   });
 
   // Move to group buttons
   el.querySelectorAll('.btn-move-group').forEach((btn) => {
     btn.addEventListener('click', async (e) => {
-      e.stopPropagation(); dropdown.classList.add('hidden');
+      e.stopPropagation(); closeDropdown(dropdown);
       mock.groupId = btn.dataset.gid || null;
       updateMockInState(mock);
       await sendMsg({ type: 'SAVE_MOCK', mock });
@@ -413,7 +429,7 @@ function bindMockItem(el, mock) {
   });
 
   q('.btn-delete', el).addEventListener('click', (e) => {
-    e.stopPropagation(); dropdown.classList.add('hidden');
+    e.stopPropagation(); closeDropdown(dropdown);
     showConfirm(`Delete mock?\n${mock.url || '(empty URL)'}`, async () => {
       const res = await sendMsg({ type: 'DELETE_MOCK', id: mock.id });
       state = res.state;
@@ -462,7 +478,7 @@ function bindMockItem(el, mock) {
   if (activeEd) updateLineNums(activeEd, lineNums);
 
   // Config fields auto-save
-  ['.url-input', '.status-input', '.delay-input', '.label-input'].forEach((sel) => {
+  ['.url-input', '.status-input', '.delay-input'].forEach((sel) => {
     q(sel, el)?.addEventListener('input', () => scheduleAutoSave(el, mock));
   });
   q('.method-select', el)?.addEventListener('change', () => scheduleAutoSave(el, mock));
@@ -513,8 +529,10 @@ async function doAutoSave(el, mock) {
   updateMockInState(updated);
   const badge = q('.method-badge', el);
   if (badge) { badge.className = 'method-badge ' + updated.method; badge.textContent = updated.method; }
-  const urlEl = q('.mock-url', el);
-  if (urlEl) { urlEl.textContent = updated.label || updated.url; urlEl.title = updated.url; }
+  const nameEl = q('.mock-name', el);
+  if (nameEl) { nameEl.textContent = updated.label || getEndpoint(updated.url) || updated.url; nameEl.title = updated.url; }
+  const subEl = q('.mock-url-sub', el);
+  if (subEl) subEl.textContent = updated.url || '';
   setSaveStatus(el, 'saved');
 }
 
@@ -525,7 +543,6 @@ function readMockFromEl(el, mock) {
     method: q('.method-select', el).value,
     statusCode: parseInt(q('.status-input', el).value) || 200,
     delay: parseInt(q('.delay-input', el).value) || 0,
-    label: q('.label-input', el).value.trim(),
     responseBody: el.querySelector('.code-editor[data-tab="response"]').value,
     requestPayload: el.querySelector('.code-editor[data-tab="request"]').value,
     responseHeaders: el.querySelector('.code-editor[data-tab="headers"]').value,
@@ -585,10 +602,58 @@ function updateGroupInState(updated) {
   if (idx >= 0) state.groups[idx] = { ...state.groups[idx], ...updated };
 }
 
+// ── Mock rename ───────────────────────────────────────────────────────────
+function startMockRename(el, mock) {
+  const nameEl = q('.mock-name', el);
+  const oldText = nameEl.textContent;
+  nameEl.contentEditable = 'true';
+  nameEl.classList.add('editing');
+  nameEl.focus();
+  const range = document.createRange();
+  range.selectNodeContents(nameEl);
+  const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(range);
+
+  let done = false;
+  const finish = async () => {
+    if (done) return; done = true;
+    nameEl.contentEditable = 'false';
+    nameEl.classList.remove('editing');
+    const newName = nameEl.textContent.trim();
+    const autoName = getEndpoint(mock.url) || '';
+    // Clear label if user typed back the auto-generated default
+    mock.label = (newName && newName !== autoName) ? newName : '';
+    nameEl.textContent = mock.label || autoName || '(empty URL)';
+    updateMockInState(mock);
+    await sendMsg({ type: 'SAVE_MOCK', mock });
+  };
+  nameEl.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); nameEl.blur(); }
+    if (e.key === 'Escape') {
+      done = true;
+      nameEl.textContent = oldText;
+      nameEl.contentEditable = 'false';
+      nameEl.classList.remove('editing');
+    }
+  });
+  nameEl.addEventListener('blur', finish);
+}
+
 // ── Utilities ─────────────────────────────────────────────────────────────
 function q(selector, ctx) { return (ctx || document).querySelector(selector); }
 function esc(str) {
   return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function getEndpoint(url) {
+  if (!url) return '';
+  try {
+    const clean = url.replace(/\*.*$/, '').replace(/\?.*$/, '').replace(/\/$/, '');
+    const pathname = new URL(clean).pathname;
+    return pathname === '/' ? '/' : pathname;
+  } catch {
+    const m = url.match(/https?:\/\/[^/]+(\/[^?*]*)/);
+    return m ? (m[1].replace(/\/$/, '') || '/') : url;
+  }
 }
 
 // Recursively expand JSON-encoded strings into proper nested objects/arrays.
@@ -619,6 +684,33 @@ function flashError(el) {
   setTimeout(() => { el.style.borderColor = ''; el.style.boxShadow = ''; }, 1200);
 }
 
+// ── Dropdown helpers ──────────────────────────────────────────────────────
+// Use position:fixed so dropdowns escape overflow:hidden containers (e.g. group-section)
+function openDropdown(btn, dd) {
+  const alreadyOpen = !dd.classList.contains('hidden');
+  closeAllDropdowns();
+  if (!alreadyOpen) {
+    const rect = btn.getBoundingClientRect();
+    const rightFromVP = window.innerWidth - rect.right;
+    const spaceBelow = window.innerHeight - rect.bottom;
+    if (spaceBelow > 160) {
+      dd.style.cssText = `position:fixed;top:${rect.bottom + 4}px;right:${rightFromVP}px;left:auto;`;
+    } else {
+      dd.style.cssText = `position:fixed;bottom:${window.innerHeight - rect.top + 4}px;right:${rightFromVP}px;left:auto;top:auto;`;
+    }
+    dd.classList.remove('hidden');
+  }
+}
+
+function closeDropdown(dd) {
+  dd.classList.add('hidden');
+  dd.style.cssText = '';
+}
+
+function closeAllDropdowns() {
+  document.querySelectorAll('.dropdown:not(.hidden)').forEach(closeDropdown);
+}
+
 // ── Confirm dialog ────────────────────────────────────────────────────────
 function showConfirm(msg, onOk) {
   q('#confirm-msg').textContent = msg;
@@ -635,13 +727,12 @@ function showConfirm(msg, onOk) {
   cancel.addEventListener('click', handleCancel);
 }
 
-document.addEventListener('click', () => {
-  document.querySelectorAll('.dropdown:not(.hidden)').forEach((d) => d.classList.add('hidden'));
-});
+document.addEventListener('click', () => { closeAllDropdowns(); });
 
 // ── Drag & Drop ───────────────────────────────────────────────────────────
 let dragState = null;
 let dropInd = null;
+let dragDropListInit = false;
 
 function getDropIndicator() {
   if (!dropInd) { dropInd = document.createElement('div'); dropInd.className = 'drop-indicator'; }
@@ -683,8 +774,8 @@ function initDragDrop() {
     });
 
     el.addEventListener('dragover', (e) => {
-      e.stopPropagation();
       if (!dragState || dragState.type !== 'mock' || dragState.id === mockId) return;
+      e.stopPropagation();
       e.preventDefault();
       const rect = el.getBoundingClientRect();
       const ind = getDropIndicator();
@@ -693,8 +784,8 @@ function initDragDrop() {
     });
 
     el.addEventListener('drop', (e) => {
-      e.stopPropagation(); e.preventDefault();
       if (!dragState || dragState.type !== 'mock' || dragState.id === mockId) return;
+      e.stopPropagation(); e.preventDefault();
       const rect = el.getBoundingClientRect();
       const before = e.clientY < rect.top + rect.height / 2;
       const targetMock = state.mocks.find((m) => m.id === mockId);
@@ -704,31 +795,32 @@ function initDragDrop() {
   });
 
   // ── Group sections ─────────────────────────────────────────────────────
+  // Only the header is draggable — making the whole section draggable conflicts
+  // with nested mock-items that are also draggable.
   list.querySelectorAll('.group-section').forEach((el) => {
     const groupId = el.dataset.groupId;
     const header = q('.group-header', el);
-    el.setAttribute('draggable', 'true');
+    header.setAttribute('draggable', 'true');
 
-    el.addEventListener('dragstart', (e) => {
-      if (e.target.closest('.mock-item')) return;
+    header.addEventListener('dragstart', (e) => {
       if (e.target.closest('button,.more-wrap,[contenteditable="true"]')) { e.preventDefault(); return; }
-      if (!e.target.closest('.group-header')) { e.preventDefault(); return; }
       dragState = { type: 'group', id: groupId };
       setTimeout(() => el.classList.add('dragging'), 0);
       e.dataTransfer.effectAllowed = 'move';
       e.dataTransfer.setData('text/plain', groupId);
+      e.stopPropagation();
     });
 
-    el.addEventListener('dragend', () => {
+    header.addEventListener('dragend', () => {
       el.classList.remove('dragging');
       dragState = null;
       clearDragUI();
     });
 
-    // Group header: drop target for moving mocks into group
+    // Header: drop target for moving mocks into this group
     header.addEventListener('dragover', (e) => {
-      e.stopPropagation();
       if (!dragState || dragState.type !== 'mock') return;
+      e.stopPropagation();
       const mock = state.mocks.find((m) => m.id === dragState.id);
       if (mock?.groupId === groupId) return;
       e.preventDefault();
@@ -737,36 +829,44 @@ function initDragDrop() {
     });
 
     header.addEventListener('dragleave', (e) => {
-      e.stopPropagation();
       if (!header.contains(e.relatedTarget)) header.classList.remove('drag-group-target');
     });
 
     header.addEventListener('drop', (e) => {
-      e.stopPropagation(); e.preventDefault();
       header.classList.remove('drag-group-target');
       if (!dragState || dragState.type !== 'mock') return;
+      e.stopPropagation(); e.preventDefault();
       doMockMoveToGroup(dragState.id, groupId);
     });
+  });
 
-    // Group section: drop target for reordering groups
-    el.addEventListener('dragover', (e) => {
-      if (!dragState || dragState.type !== 'group' || dragState.id === groupId) return;
+  // ── Group reorder: event delegation on the list ────────────────────────
+  // Added once — the list element persists across renders, elements inside do not.
+  if (!dragDropListInit) {
+    dragDropListInit = true;
+
+    list.addEventListener('dragover', (e) => {
+      if (!dragState || dragState.type !== 'group') return;
+      const targetSection = e.target.closest('.group-section');
+      if (!targetSection || targetSection.dataset.groupId === dragState.id) return;
       e.preventDefault();
-      const rect = el.getBoundingClientRect();
+      const rect = targetSection.getBoundingClientRect();
       const ind = getDropIndicator();
-      if (e.clientY < rect.top + rect.height / 2) el.parentNode.insertBefore(ind, el);
-      else el.parentNode.insertBefore(ind, el.nextSibling);
+      if (e.clientY < rect.top + rect.height / 2) list.insertBefore(ind, targetSection);
+      else list.insertBefore(ind, targetSection.nextSibling);
     });
 
-    el.addEventListener('drop', (e) => {
-      if (!dragState || dragState.type !== 'group' || dragState.id === groupId) return;
+    list.addEventListener('drop', (e) => {
+      if (!dragState || dragState.type !== 'group') return;
+      const targetSection = e.target.closest('.group-section');
+      if (!targetSection || targetSection.dataset.groupId === dragState.id) return;
       e.preventDefault();
-      const rect = el.getBoundingClientRect();
+      const rect = targetSection.getBoundingClientRect();
       const before = e.clientY < rect.top + rect.height / 2;
       clearDragUI();
-      doGroupReorder(dragState.id, groupId, before);
+      doGroupReorder(dragState.id, targetSection.dataset.groupId, before);
     });
-  });
+  }
 }
 
 async function doMockReorder(srcId, targetId, before, newGroupId) {
@@ -818,12 +918,7 @@ function bindImportExport() {
       try {
         const data = JSON.parse(ev.target.result);
         if (!Array.isArray(data.mocks)) throw new Error('bad format');
-        pendingImport = data;
-        const mc = data.mocks.length;
-        const gc = (data.groups || []).length;
-        q('#import-summary').textContent =
-          `Found ${mc} mock${mc !== 1 ? 's' : ''}${gc ? ` and ${gc} group${gc !== 1 ? 's' : ''}` : ''}`;
-        q('#import-overlay').classList.remove('hidden');
+        showImportDialog(data);
       } catch (_) {
         showConfirm('Invalid file: expected JSON with a "mocks" array.', () => {});
       }
@@ -844,6 +939,12 @@ function exportMocks() {
   downloadJSON(data, `api-mock-export-${Date.now()}.json`);
 }
 
+function exportGroup(group) {
+  const mocks = state.mocks.filter((m) => m.groupId === group.id);
+  const slug = group.name.replace(/[^a-z0-9]/gi, '-').slice(0, 40).replace(/-+$/, '');
+  downloadJSON({ version: 1, exportedAt: new Date().toISOString(), mocks, groups: [group] }, `group-${slug}.json`);
+}
+
 function exportSingleMock(mock) {
   const slug = (mock.label || mock.url || 'mock').replace(/[^a-z0-9]/gi, '-').slice(0, 40).replace(/-+$/, '');
   downloadJSON({ version: 1, exportedAt: new Date().toISOString(), mocks: [mock], groups: [] }, `mock-${slug}.json`);
@@ -858,30 +959,65 @@ function downloadJSON(data, filename) {
   document.body.removeChild(a); URL.revokeObjectURL(url);
 }
 
+function showImportDialog(data) {
+  pendingImport = data;
+  const mc = data.mocks.length;
+  const gc = (data.groups || []).length;
+  q('#import-summary').textContent =
+    `Found ${mc} mock${mc !== 1 ? 's' : ''}${gc ? ` and ${gc} group${gc !== 1 ? 's' : ''}` : ''}`;
+
+  // Populate group selector with current groups
+  const sel = q('#import-group-select');
+  while (sel.options.length > 2) sel.remove(2); // keep __keep__ and ungrouped
+  (state.groups || []).forEach((g) => sel.add(new Option(g.name, g.id)));
+  // Only show "keep original grouping" if file has group info
+  sel.options[0].hidden = gc === 0;
+  sel.value = gc > 0 ? '__keep__' : '';
+
+  q('#import-overlay').classList.remove('hidden');
+}
+
+function genId() {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 7) + Math.random().toString(36).slice(2, 5);
+}
+
 async function doImport(mode) {
   q('#import-overlay').classList.add('hidden');
   if (!pendingImport) return;
 
+  const groupTarget = q('#import-group-select').value; // '__keep__' | '' | groupId
   let mocks = (pendingImport.mocks || []).map((m) => ({ ...m }));
-  let groups = (pendingImport.groups || []).map((g) => ({ ...g }));
+  let fileGroups = (pendingImport.groups || []).map((g) => ({ ...g }));
 
   if (mode === 'merge') {
-    const idMap = {};
-    groups = groups.map((g) => {
-      const newId = Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
-      idMap[g.id] = newId;
-      return { ...g, id: newId };
-    });
-    mocks = mocks.map((m) => ({
-      ...m,
-      id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
-      groupId: m.groupId ? (idMap[m.groupId] || null) : null,
-    }));
-    mocks = [...state.mocks, ...mocks];
-    groups = [...(state.groups || []), ...groups];
+    if (groupTarget === '__keep__') {
+      // Keep file's groups, remap IDs to avoid collisions
+      const idMap = {};
+      fileGroups = fileGroups.map((g) => {
+        const newId = genId(); idMap[g.id] = newId;
+        return { ...g, id: newId };
+      });
+      mocks = mocks.map((m) => ({
+        ...m, id: genId(),
+        groupId: m.groupId ? (idMap[m.groupId] || null) : null,
+      }));
+      mocks = [...state.mocks, ...mocks];
+      fileGroups = [...(state.groups || []), ...fileGroups];
+    } else {
+      // Override all imported mocks to go into selected group (or ungrouped)
+      mocks = mocks.map((m) => ({ ...m, id: genId(), groupId: groupTarget || null }));
+      mocks = [...state.mocks, ...mocks];
+      fileGroups = [...(state.groups || [])]; // don't add file's groups
+    }
+  } else {
+    // Replace: clear everything and load from file
+    if (groupTarget !== '__keep__') {
+      mocks = mocks.map((m) => ({ ...m, groupId: groupTarget || null }));
+      fileGroups = []; // discard file groups since we're overriding assignment
+    }
   }
 
-  const res = await sendMsg({ type: 'IMPORT_STATE', mocks, groups });
+  const res = await sendMsg({ type: 'IMPORT_STATE', mocks, groups: fileGroups });
   state = res.state; state.groups = state.groups || [];
   expandedId = null;
   pendingImport = null;

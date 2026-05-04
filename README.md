@@ -7,6 +7,23 @@ A Chrome extension to intercept and mock HTTP responses for development and test
 
 ---
 
+## Changelog
+
+### v1.1.0
+- **Drag & drop** — reorder mocks and groups by dragging their handles; drop a mock onto a group header to move it into that group
+- **Import / Export** — export all mocks, a single mock, or an entire group to JSON; import with merge or replace-all modes and optional group assignment
+- **Inline rename** — double-click a mock name to rename it; default display name is derived from the endpoint path
+- **Deep-expand JSON** — Format JSON button now recursively un-stringifies nested JSON-encoded strings
+- **Improved group UI** — groups have a distinct blue left border, header background, and mock count badge
+- **Dropdown overflow fix** — ⋮ dropdowns now render above overflow:hidden containers using `position: fixed`
+- **Removed Label field** — mock display name is now managed via inline rename instead of a separate form field
+- **Larger popup** — increased minimum height to 480 px
+
+### v1.0.0
+- Initial release
+
+---
+
 ## Features
 
 - **Intercept fetch & XHR** — overrides both `window.fetch` and `XMLHttpRequest` directly in the page's main world, so every request is caught regardless of the library used (axios, ky, jQuery, etc.)
